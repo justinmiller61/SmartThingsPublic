@@ -246,47 +246,18 @@ def turnOn(theSwitches = allOff.clone(), numOn = allOn.size()) {
 	}
 }
 
-def turnOff() {
-	if (allOn.size() > 0) {
-		if(!light_off_delay) {
-			log.debug("Turning off all lights quickly")
-			
-			switches.off()
-			state.running = false
-			
-			runNowOrLater(scheduleCheck, cycle_delay)
-		} else {
-			log.debug("Turning off lights slowly")
-			
-			allOn.first().off()
-			runIn(light_off_delay, turnOff)
-		}
+def turnOff(theSwitches = allOn.clone(), numOn = allOn.size()) {
+	if (numOn > 0) {
+    	def shouldRemove = !light_off_delay
+    	def theSwitch = getRandomN(1, theSwitches, shouldRemove)
+    	theSwitch.off()
+        
+        runNowOrLater(turnOff, light_off_delay, theSwitches, numOn - 1)
 	} else {
 		state.running = false
 		runNowOrLater(scheduleCheck, cycle_delay)
 	}
 }
-
-/*
-def turnOff() {
-	if (allOn.size() > 0) {
-		if(!light_off_delay) {
-			log.debug("Turning off all lights quickly")
-			switches.off()
-		} else {
-			log.debug("Turning off lights slowly")
-			
-			allOn.first().off()
-			runIn(light_off_delay, turnOff)
-		}
-	} 
-	
-	if (allOn.size() == 0 || !light_off_delay) {
-		state.running = false
-		runNowOrLater(scheduleCheck, cycle_delay)
-	}
-}
-*/
 
 def runNowOrLater(method, delay, Object... args) {
 	if(delay) {
