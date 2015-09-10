@@ -189,8 +189,8 @@ def calculateRunTimeFromInput() {
 		nextFire = nextOccurrence(nextFire, days)
 	}
 	
+	//if not running today, and no start time preference was set, set to run at midnight (call the clearTime)
 	if(!willRunToday(nextFire) && !starting) {
-		//if there was no starting time, then clearTime, which sets to midnight
 		nextFire = nextFire.clearTime()
 	}
 	
@@ -228,31 +228,29 @@ def nextOccurrence(time, daysOfWeek) {
 	time
 }
 
-def turnOn(theSwitches = allOff.clone(), numOn = allOn.size()) {
-	log.debug("$numOn lights are on. I have ${theSwitches.size()} available switches")
-	log.debug("Turning on lights ${light_on_delay ? 'slowly' : 'quicky'}")
-
+def turnOn(availableSwitches = allOff.clone(), numOn = allOn.size()) {
 	if (numOn < number_of_active_lights) {
+		log.debug("$numOn lights are on. I have ${availableSwitches.size()} available switches")
+	
 		//if there is no delay in turning on each lights, remove the switch from the list
 		def shouldRemove = !light_on_delay
-		def theSwitch = getRandomN(1, theSwitches, shouldRemove)
+		def theSwitch = getRandom(availableSwitches, shouldRemove)
 		theSwitch.on()
 		
 		log.debug("Turning on ${theSwitch.label}")
 		
-		runNowOrLater(turnOn, light_on_delay, theSwitches, numOn + 1)
+		runNowOrLater(turnOn, light_on_delay, availableSwitches, numOn + 1)
 	} else {
 		runIn(getNextCycleTime(), turnOff)
 	}
 }
 
-def turnOff(theSwitches = allOn.clone(), numOn = allOn.size()) {
-	if (numOn > 0) {
-    	def shouldRemove = !light_off_delay
-    	def theSwitch = getRandomN(1, theSwitches, shouldRemove)
-    	theSwitch.off()
+def turnOff(availableSwitches = allOn.clone()) {
+	if (availableSwitches.size() > 0) {
+    		def theSwitch = availableSwitches.pop()
+    		theSwitch.off()
         
-        runNowOrLater(turnOff, light_off_delay, theSwitches, numOn - 1)
+        	runNowOrLater(turnOff, light_off_delay, availableSwitches)
 	} else {
 		state.running = false
 		runNowOrLater(scheduleCheck, cycle_delay)
@@ -286,7 +284,7 @@ def getAllOff() {
 }
 
 //@param remove whether or not to remove the randomly selected items from theList
-def getRandomN(num, theList, remove = false) {
+def getRandom(theList, remove = false, num = 1) {
 	def r = new Random()
 	def listCopy = remove ? theList : theList.clone()
 
