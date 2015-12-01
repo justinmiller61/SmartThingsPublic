@@ -140,9 +140,6 @@ def scheduleCheckDeffered(evt = null) {
 	runOnce(calculateRunTimeFromInput(), scheduleCheck)
 }
 
-// We want to turn off all the lights
-// Then we want to take a random set of lights and turn those on
-// Then run it again when the frequency demands it
 def scheduleCheck(evt = null) {
 	log.debug("Running scheduleCheck")
 	
@@ -156,9 +153,7 @@ def scheduleCheck(evt = null) {
 		}
 	} else if(modeOk) {
 		runOnce(calculateRunTimeFromInput(), scheduleCheck)
-	}
-	//if none is ok turn off frequency check and turn off lights.
-	else {
+	} else {
 		log.debug("Stopping Check for Light")
 		unschedule()
 		state.running = false
@@ -169,14 +164,11 @@ def scheduleCheck(evt = null) {
 	}
 }
 
-def willRunToday(time) {
-	return new Date()[Calendar.DAY_OF_WEEK] == time[Calendar.DAY_OF_WEEK]
-}
-
 def calculateRunTimeFromInput() {
 	def now = new Date()
 	def nextFire = new Date(now.time)
 	
+    //when can it run based on start/end times
 	if(starting) {
 		def startingToday = timeToday(starting, location.timeZone)
 		def endingToday = timeTodayAfter(startingToday, ending, location.timeZone)
@@ -184,18 +176,18 @@ def calculateRunTimeFromInput() {
 			nextFire = timeTodayAfter(now, starting, location.timeZone)
 		}
 	}
-		
+    //when can it run based on day of week
 	if(days) {
 		nextFire = nextOccurrence(nextFire, days)
 	}
-	
-	//if not running today, and no start time preference was set, set to run at midnight (call the clearTime)
+    //now adjust for unset start time, i.e. it should run at midnight on the day calculated
 	if(!willRunToday(nextFire) && !starting) {
 		nextFire = nextFire.clearTime()
 	}
 	
 	def delay = (falseAlarmThreshold ?: 2) * 60 * 1000
 	
+    //add a delay if necessary
 	if(nextFire.time - now.time <= delay) {
 		log.debug("Adding $delay millisecond delay")
 		delay += nextFire[Calendar.MILLISECOND]
@@ -206,7 +198,13 @@ def calculateRunTimeFromInput() {
 	return nextFire;
 }
 
+def willRunToday(time) {
+	return new Date()[Calendar.DAY_OF_WEEK] == time[Calendar.DAY_OF_WEEK]
+}
+
 def nextOccurrence(time, daysOfWeek) {
+	def dayOfWeek = time[Calendar.DAY_OF_WEEK]
+    
 	def daysMap = [
 		"Monday": 2,
 		"Tuesday": 3,
@@ -216,9 +214,9 @@ def nextOccurrence(time, daysOfWeek) {
 		"Saturday": 7,
 		"Sunday": 1 ]
 		
-	def daysInt = [ daysOfWeek ].flatten().collect { daysMap[it] }
-	def dayOfWeek = time[Calendar.DAY_OF_WEEK]
-	def nextDay = daysInt.find { day -> day >= dayOfWeek } ?: daysInt.first()
+    //daysOfWeek could be a single day or an array
+    def daysToIntMap = [ daysOfWeek ].flatten().collect { daysMap[it] }
+	def nextDay = daysToIntMap.find { day -> day >= dayOfWeek } ?: daysToIntMap.first()
 
 	//calculate the number of days between the two days of the week
 	def daysBetween = (nextDay < dayOfWeek ? 7 : 0) + nextDay - dayOfWeek
@@ -247,10 +245,9 @@ def turnOn(availableSwitches = allOff.clone(), numOn = allOn.size()) {
 
 def turnOff(availableSwitches = allOn.clone()) {
 	if (availableSwitches.size() > 0) {
-    		def theSwitch = availableSwitches.pop()
-    		theSwitch.off()
-        
-        	runNowOrLater(turnOff, light_off_delay, availableSwitches)
+        def theSwitch = availableSwitches.pop()
+        theSwitch.off()
+        runNowOrLater(turnOff, light_off_delay, availableSwitches)
 	} else {
 		state.running = false
 		runNowOrLater(scheduleCheck, cycle_delay)
