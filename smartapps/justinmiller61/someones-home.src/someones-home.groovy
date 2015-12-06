@@ -74,7 +74,7 @@ def moreOptions() {
 
 	dynamicPage(name: "moreOptions", title: "More", nextPage: "mainPage") {
 		section("Maximum number of minutes for each cycle?") {
-			paragraph "If you specify a both a minimum and a maximum number of minutes for a cycle, then a random number of minutes between the two will be chosen. Otherwise, it will be a fixed frequency."
+			paragraph "Number of minutes randomly chosen between the minimum and the maximum."
 			input name: "frequency_minutes_end", type: "number", title: "Minutes?", required: false
 		}
 		
@@ -102,7 +102,11 @@ def moreOptions() {
 		section {
 			input "ending", "time", title: "Ending", required: false
 		}
-		
+        
+        section {
+	        input name: "days", type: "enum", title: "Only on certain days of the week", description: "Days?", multiple: true, required: false, options: daysMap
+		}
+        
 		section() {
 			label title:"Assign a name", required:false
 			input name: "falseAlarmThreshold", type: "decimal", title: "Delay to start simulator... (defaults to 2 min)", description: "Minutes?", required: false
@@ -137,7 +141,7 @@ def scheduleCheckDeffered(evt = null) {
 	if(evt) {
 		log.debug("Mode change $evt")
 	}
-	runOnce(calculateRunTimeFromInput(), scheduleCheck)
+	runOnce(nextRunTime(), scheduleCheck)
 }
 
 def scheduleCheck(evt = null) {
@@ -152,7 +156,7 @@ def scheduleCheck(evt = null) {
 			log.debug("Already running")
 		}
 	} else if(modeOk) {
-		runOnce(calculateRunTimeFromInput(), scheduleCheck)
+		runOnce(nextRunTime(), scheduleCheck)
 	} else {
 		log.debug("Stopping Check for Light")
 		unschedule()
@@ -164,66 +168,79 @@ def scheduleCheck(evt = null) {
 	}
 }
 
-def calculateRunTimeFromInput() {
-	def now = new Date()
-	def nextFire = new Date(now.time)
-	
-    //when can it run based on start/end times
-	if(starting) {
-		def startingToday = timeToday(starting, location.timeZone)
-		def endingToday = timeTodayAfter(startingToday, ending, location.timeZone)
-		if(!timeOfDayIsBetween(startingToday, endingToday, now, location.timeZone)) {
-			nextFire = timeTodayAfter(now, starting, location.timeZone)
-		}
-	}
-    //when can it run based on day of week
-	if(days) {
-		nextFire = nextOccurrence(nextFire, days)
-	}
-    //now adjust for unset start time, i.e. it should run at midnight on the day calculated
-	if(!willRunToday(nextFire) && !starting) {
-		nextFire = nextFire.clearTime()
+def iso8601Format() {
+    "yyyy-MM-dd'T'HH:mmZ"
+}
+
+def nextRunTime() {
+    def startString = starting ?: new Date().clearTime().format(iso8601Format())
+    def endString = ending ?: new Date().updated(hourOfDay: 23, minute: 59, second: 59).format(iso8601Format())
+    def newDays = days ?: [ "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" ]
+    
+    //adjust run time for start/end inputs
+    def nextRun = nextOccurrenceByTime(startString, endString)
+    
+    //adjust run time for days of week input
+	nextRun = nextOccurrenceByDay(nextRun, newDays)
+    
+    //now adjust start hour/minute in case days of week input forces us to another day
+	if(!willRunToday(nextRun)) {
+    	def startDate = timeToday(startString, location.timeZone)
+        nextRun.set(hourOfDay: startDate[Calendar.HOUR_OF_DAY], minute: startDate[Calendar.MINUTE])
 	}
 	
 	def delay = (falseAlarmThreshold ?: 2) * 60 * 1000
 	
     //add a delay if necessary
-	if(nextFire.time - now.time <= delay) {
+	if(nextRun.time - new Date().time <= delay) {
 		log.debug("Adding $delay millisecond delay")
-		delay += nextFire[Calendar.MILLISECOND]
-		nextFire[Calendar.MILLISECOND] = delay
+		nextRun[Calendar.MILLISECOND] = nextRun[Calendar.MILLISECOND] + delay
 	}
 	
-	log.debug("Next fire date is: ${nextFire}")
-	return nextFire;
+	log.debug("Next run date is: ${nextRun}")
+	return nextRun;
 }
 
-def willRunToday(time) {
-	return new Date()[Calendar.DAY_OF_WEEK] == time[Calendar.DAY_OF_WEEK]
+def nextOccurrenceByTime(start, end) {
+	def time = new Date()
+    
+    def startingToday = timeToday(start, location.timeZone)
+    def endingToday = timeTodayAfter(startingToday, end, location.timeZone)
+    
+    if(!timeOfDayIsBetween(startingToday, endingToday, time, location.timeZone)) {
+        time = timeTodayAfter(time, start, location.timeZone)
+    }
+    
+    return time
 }
 
-def nextOccurrence(time, daysOfWeek) {
+def nextOccurrenceByDay(time, daysOfWeek) {
 	def dayOfWeek = time[Calendar.DAY_OF_WEEK]
     
 	def daysMap = [
+	    "Sunday": 1,
 		"Monday": 2,
 		"Tuesday": 3,
 		"Wednesday": 4,
 		"Thursday": 5,
 		"Friday": 6,
-		"Saturday": 7,
-		"Sunday": 1 ]
+		"Saturday": 7
+	]
 		
     //daysOfWeek could be a single day or an array
-    def daysToIntMap = [ daysOfWeek ].flatten().collect { daysMap[it] }
+    def daysToIntMap = [ daysOfWeek ].flatten().collect { daysMap[it] }.sort()
 	def nextDay = daysToIntMap.find { day -> day >= dayOfWeek } ?: daysToIntMap.first()
-
+    
 	//calculate the number of days between the two days of the week
 	def daysBetween = (nextDay < dayOfWeek ? 7 : 0) + nextDay - dayOfWeek
 	
 	//add to DAY_OF_MONTH. Will cause 'time' to roll if necessary
 	time[Calendar.DAY_OF_MONTH] = time[Calendar.DAY_OF_MONTH] + daysBetween
 	time
+}
+
+def willRunToday(time) {
+	return new Date()[Calendar.DAY_OF_WEEK] == time[Calendar.DAY_OF_WEEK]
 }
 
 def turnOn(availableSwitches = allOff.clone(), numOn = allOn.size()) {
