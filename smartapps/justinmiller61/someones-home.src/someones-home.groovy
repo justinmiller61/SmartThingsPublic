@@ -168,10 +168,6 @@ def scheduleCheck(evt = null) {
 	}
 }
 
-def iso8601Format() {
-    "yyyy-MM-dd'T'HH:mmZ"
-}
-
 def nextRunTime() {
     def startString = starting ?: new Date().clearTime().format(iso8601Format())
     def endString = ending ?: new Date().updated(hourOfDay: 23, minute: 59, second: 59).format(iso8601Format())
@@ -207,6 +203,8 @@ def nextOccurrenceByTime(start, end) {
     def startingToday = timeToday(start, location.timeZone)
     def endingToday = timeTodayAfter(startingToday, end, location.timeZone)
     
+    //check to see if we're within our run time. if not, calculate next earliest
+    //runtime based on the startTime input
     if(!timeOfDayIsBetween(startingToday, endingToday, time, location.timeZone)) {
         time = timeTodayAfter(time, start, location.timeZone)
     }
@@ -227,20 +225,18 @@ def nextOccurrenceByDay(time, daysOfWeek) {
 		"Saturday": 7
 	]
 		
-    //daysOfWeek could be a single day or an array
+    //daysOfWeek could be a single day or an array, so flatten just in case
     def daysToIntMap = [ daysOfWeek ].flatten().collect { daysMap[it] }.sort()
-	def nextDay = daysToIntMap.find { day -> day >= dayOfWeek } ?: daysToIntMap.first()
+    
+    //find a day that has an ordinal greater than or equal to the current day
+	def nextDay = daysToIntMap.find { day -> day >= dayOfWeek } ?: (daysToIntMap.first() + 7)
     
 	//calculate the number of days between the two days of the week
-	def daysBetween = (nextDay < dayOfWeek ? 7 : 0) + nextDay - dayOfWeek
+	def daysBetween = nextDay - dayOfWeek
 	
 	//add to DAY_OF_MONTH. Will cause 'time' to roll if necessary
 	time[Calendar.DAY_OF_MONTH] = time[Calendar.DAY_OF_MONTH] + daysBetween
 	time
-}
-
-def willRunToday(time) {
-	return new Date()[Calendar.DAY_OF_WEEK] == time[Calendar.DAY_OF_WEEK]
 }
 
 def turnOn(availableSwitches = allOff.clone(), numOn = allOn.size()) {
@@ -256,7 +252,7 @@ def turnOn(availableSwitches = allOff.clone(), numOn = allOn.size()) {
 		
 		runNowOrLater(turnOn, light_on_delay, availableSwitches, numOn + 1)
 	} else {
-		runIn(getNextCycleTime(), turnOff)
+		runIn(getNextCycleDuration(), turnOff)
 	}
 }
 
@@ -271,15 +267,15 @@ def turnOff(availableSwitches = allOn.clone()) {
 	}
 }
 
-def runNowOrLater(method, delay, Object... args) {
-	if(delay) {
-		runIn(delay, method)
-	} else {
-		"$method"(args)
-	}
+def willRunToday(time) {
+	return new Date()[Calendar.DAY_OF_WEEK] == time[Calendar.DAY_OF_WEEK]
 }
 
-def getNextCycleTime() {
+def iso8601Format() {
+    "yyyy-MM-dd'T'HH:mmZ"
+}
+
+def getNextCycleDuration() {
 	def freq = getRandomBetween(frequency_minutes, frequency_minutes_end) * 60
 	log.debug("Next cycle time: ${freq}")
 	return freq
@@ -299,11 +295,11 @@ def getAllOff() {
 
 //@param remove whether or not to remove the randomly selected items from theList
 def getRandom(theList, remove = false, num = 1) {
-	def r = new Random()
 	def listCopy = remove ? theList : theList.clone()
 
 	num = Math.min(listCopy.size(), num)
-	def subset = (1..num).collect { listCopy.remove(r.nextInt(listCopy.size())) }
+	def r = new Random()
+    def subset = (1..num).collect { listCopy.remove(r.nextInt(listCopy.size())) }
 	
 	subset.size() == 1 ? subset.first() : subset
 }
@@ -345,37 +341,12 @@ private getTimeOk() {
 	if (starting && ending) {
 		def todayStart = timeToday(starting, location.timeZone)
 		def todayEnd = timeTodayAfter(todayStart, ending, location.timeZone)
-		def now = new Date()
-		result = timeOfDayIsBetween(todayStart, todayEnd, now, location.timeZone)
+		result = timeOfDayIsBetween(todayStart, todayEnd, new Date(), location.timeZone)
 	}
 	
 	log.debug("timeOk = $result")
 	
 	return result
-}
-
-def getTimeLabel(starting, ending){
-
-	def timeLabel = "Tap to set"
-
-	if(starting && ending){
-		timeLabel = "Between" + " " + hhmm(starting) + " "  + "and" + " " +  hhmm(ending)
-	}
-	else if (starting) {
-		timeLabel = "Start at" + " " + hhmm(starting)
-	}
-	else if(ending){
-		timeLabel = "End at" + hhmm(ending)
-	}
-	timeLabel
-}
-
-private hhmm(time, fmt = "h:mm a")
-{
-	def t = timeToday(time, location.timeZone)
-	def f = new java.text.SimpleDateFormat(fmt)
-	f.setTimeZone(location.timeZone ?: timeZone(time))
-	f.format(t)
 }
 
 def getInputState(hasInput){
@@ -392,4 +363,12 @@ private anyoneIsHome() {
 	log.debug("anyoneIsHome: ${result}")
 
 	return result
+}
+
+def runNowOrLater(method, delay, Object... args) {
+	if(delay) {
+		runIn(delay, method)
+	} else {
+		"$method"(args)
+	}
 }
